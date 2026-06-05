@@ -1,28 +1,78 @@
-# Automatic Annotation Video Generator
+# AI Educational Video Generator
 
-This repository implements the end‑to‑end pipeline:
+An automated educational video generation pipeline that creates synchronized annotations from a question PDF/image and teacher narration audio.
 
-1. Convert `background.pdf` → `background.png` (300 dpi).
-2. Transcribe `narration.wav` with **OpenAI Whisper** → `transcript.json` (includes timestamps).
-3. Heuristic planner extracts annotation events from the transcript.
-4. Pillow renderer draws highlights, equations, arrows, and text onto the background.
-5. MoviePy assembles the rendered frames with the original audio → `output.mp4`.
+## Architecture
 
-## Usage
+PDF/Image
+↓ OCR (EasyOCR)
+ocr.json
+
+Audio
+↓ Faster-Whisper
+transcript.json
+
+OCR + Transcript
+↓ Gemini
+annotations.json
+
+Annotations
+↓ Timeline Builder
+annotation_timeline.json
+
+MoviePy + Pillow
+↓
+output.mp4
+
+## Features
+
+* OCR extraction from educational content
+* Speech transcription with timestamps
+* AI-generated educational annotations
+* Timeline synchronization
+* Automatic video rendering
+* JSON artifact generation for debugging and inspection
+
+## Tech Stack
+
+* Python
+* EasyOCR
+* Faster-Whisper
+* Google Gemini
+* Pillow
+* MoviePy
+* FFmpeg
+
+## Setup
+
 ```bash
-python main.py
+pip install -r requirements.txt
 ```
-The script expects the input files under `data/` (see folder layout).
 
-## Folder Layout
+Set:
+
+```bash
+GOOGLE_API_KEY=your_key
 ```
-task1/
-├─ data/
-│   ├─ background.pdf
-│   └─ narration.wav
-├─ background.png            # generated
-├─ transcript.json           # generated
-├─ annotation_timeline.json  # generated
-├─ frames/                   # generated PNG sequence
-└─ output.mp4                # final video
+
+## Run
+
+```bash
+python run_pipeline.py
 ```
+
+## Output Artifacts
+
+Generated inside `output/`:
+
+* ocr.json
+* transcript.json
+* annotations.json
+* annotation_timeline.json
+* output.mp4
+
+## Limitations
+
+* Annotation quality depends on OCR quality.
+* Synchronization depends on transcript segmentation.
+* Complex diagrams may require additional planning logic.
