@@ -1,0 +1,51 @@
+[
+  {
+    "type": "highlight",
+    "start": 0.0,
+    "end": 15.0,
+    "x": 667,
+    "y": 450,
+    "w": 933,
+    "h": 120
+  },
+  {
+    "type": "show_text",
+    "start": 15.0,
+    "end": 24.5,
+    "x": 1334,
+    "y": 975,
+    "content": "d = \u221a((x\u2082-x\u2081)\u00b2 + (y\u2082-y\u2081)\u00b2)"
+  },
+  {
+    "type": "show_text",
+    "start": 29.5,
+    "end": 40.0,
+    "x": 1334,
+    "y": 975,
+    "content": "\u221a((4-1)\u00b2 + (6-2)\u00b2)"
+  },
+  {
+    "type": "show_text",
+    "start": 46.0,
+    "end": 49.0,
+    "x": 1334,
+    "y": 975,
+    "content": "\u221a(9 + 16)"
+  },
+  {
+    "type": "show_text",
+    "start": 49.0,
+    "end": 53.0,
+    "x": 1334,
+    "y": 975,
+    "content": "\u221a25"
+  },
+  {
+    "type": "show_text",
+    "start": 55.0,
+    "end": 59.0,
+    "x": 1334,
+    "y": 975,
+    "content": "d = 5 units"
+  }
+]
