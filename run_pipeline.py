@@ -370,9 +370,23 @@ def map_raw_annotations_to_timeline(annotations_raw, duration, segments, ocr_dat
             continue
             
         if category == "question":
-            # Highlight question statement area over the entire video
+            # Highlight question statement area
             start_t = 0.0
             end_t = duration
+            matched_seg_txt = "*(Full duration background anchor)*"
+            
+            # Dynamically map start_t by searching for the first few words of the question content
+            words = content.split()
+            search_phrase = " ".join(words[:4]) if len(words) >= 4 else content
+            trigger_norm = normalize_trigger(search_phrase)
+            
+            if trigger_norm:
+                idx = concat_text.find(trigger_norm)
+                if idx != -1:
+                    t, _ = get_char_time(idx)
+                    start_t = t
+                    matched_seg_txt = f"*(Matched: '{search_phrase}')*"
+            
             bbox = find_ocr_bbox(content)
             if bbox:
                 x0 = min(p[0] for p in bbox)
@@ -396,7 +410,7 @@ def map_raw_annotations_to_timeline(annotations_raw, duration, segments, ocr_dat
                 "category": category,
                 "content": content,
                 "trigger_quote": "*(None: OCR source)*",
-                "matched_segment": "*(Full duration background anchor)*",
+                "matched_segment": matched_seg_txt,
                 "start": start_t,
                 "end": end_t
             })
@@ -791,7 +805,7 @@ def draw_frame(t):
             if x0 is not None and y0 is not None and x1 is not None and y1 is not None:
                 bbox_width = x1 - x0
                 bbox_height = y1 - y0
-                underline_duration = 7.0
+                underline_duration = 5.0
                 fraction = min(1.0, (t - ann["start"]) / underline_duration)
                 if fraction > 0:
                     y_pos = y1 + int(bbox_height * 0.06)
