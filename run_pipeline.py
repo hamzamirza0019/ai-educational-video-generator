@@ -61,6 +61,7 @@ if W % 2 == 1 or H % 2 == 1:
 
 # ── Step 2: Audio duration ─────────────────────────────────────────────────────
 print("[2/5] Loading audio...")
+# pyrefly: ignore [missing-import]
 from moviepy.editor import AudioFileClip, ImageClip, CompositeVideoClip, VideoClip
 import subprocess
 import tempfile
@@ -222,6 +223,10 @@ CRITICAL RULES:
    - highlight: Highlight when teacher mentions the question/problem statement.
    - draw_arrow: Point when teacher refers to figures, diagrams, or visual objects.
 
+5. GENERATE ALL INTERMEDIATE SIMPLIFICATION STEPS:
+   - Carefully follow the teacher's mathematical calculations.
+   - You must output all intermediate simplification and calculation steps as separate events (e.g. if the teacher simplifies √((4-1)² + (6-2)²) to √(3² + 4²), and then to √(9 + 16), write a step for each). Do not skip these intermediate steps even if they seem trivial.
+
 EVENT SCHEMA:
 {{
   "category": "question" | "given_values" | "options" | "formula" | "substitution" | "calculation" | "answer" | "correct_option",
@@ -238,8 +243,10 @@ EXAMPLE OF CORRECT OUTPUT:
   {{"category": "given_values", "source": "ocr", "trigger_quote": "", "type": "show_text", "region": "question_area", "content": "A (1, 2) and (4,6)"}},
   {{"category": "options", "source": "ocr", "trigger_quote": "", "type": "show_text", "region": "question_area", "content": "(A) 3 units\\n(B) 4 units\\n(C) 5 units\\n(D) 6 units"}},
   {{"category": "formula", "source": "transcript", "trigger_quote": "distance between 2 points is given as", "type": "show_text", "region": "working_area", "content": "d = √((x₂-x₁)² + (y₂-y₁)²)"}},
-  {{"category": "substitution", "source": "transcript", "trigger_quote": "under root of x2 plus 4 square", "type": "show_text", "region": "working_area", "content": "d = √((4-1)² + (6-2)²)"}},
-  {{"category": "calculation", "source": "transcript", "trigger_quote": "of 9 plus 16 which comes out to be", "type": "show_text", "region": "working_area", "content": "d = √(9 + 16)"}},
+  {{"category": "substitution", "source": "transcript", "trigger_quote": "we will write as 4 minus 1 whole square plus y2 is 6, so we will write as 6 minus 2 whole square", "type": "show_text", "region": "working_area", "content": "d = √((4-1)² + (6-2)²)"}},
+  {{"category": "calculation", "source": "transcript", "trigger_quote": "under root of x2 plus 4 square", "type": "show_text", "region": "working_area", "content": "d = √(3² + 4²)"}},
+  {{"category": "calculation", "source": "transcript", "trigger_quote": "under root of 9 plus 16", "type": "show_text", "region": "working_area", "content": "d = √(9 + 16)"}},
+  {{"category": "calculation", "source": "transcript", "trigger_quote": "comes out to be under root 25", "type": "show_text", "region": "working_area", "content": "d = √25"}},
   {{"category": "answer", "source": "transcript", "trigger_quote": "answer will be d is equal to 5 units", "type": "show_text", "region": "working_area", "content": "d = 5 units"}},
   {{"category": "correct_option", "source": "ocr", "trigger_quote": "", "type": "show_text", "region": "question_area", "content": "(C) 5 units"}}
 ]
@@ -417,7 +424,7 @@ def map_raw_annotations_to_timeline(annotations_raw, duration, segments, ocr_dat
                 x1 = max(p[0] for p in bbox)
                 y1 = max(p[1] for p in bbox)
             else:
-                x0, y0, x1, y1 = 53, 518, 403, 611
+                x0, y0, x1, y1 = 60, 520, 390, 580
                 
             event = {
                 "category": category,
@@ -439,70 +446,58 @@ def map_raw_annotations_to_timeline(annotations_raw, duration, segments, ocr_dat
             })
         else:
             # Transcript-based step annotation
-            # Explicit content-based overrides for specific educational elements to ensure accuracy:
-            if "x" in content and "y" in content and ("2" in content or "₂" in content or "x2" in content):
-                start_t = 13.52
-                end_t = 25.28
-                matched_seg_txt = "We know that distance between 2 points is given as... plus y2 minus y1 whole square."
-                print(f"    [OVERRIDE] Distance formula detected. Forcing timestamp: {start_t} - {end_t}")
-            elif "9" in content and "16" in content:
-                start_t = 53.88
-                end_t = 60.04
-                matched_seg_txt = "of 9 plus 16 which comes out to be under root 25."
-                print(f"    [OVERRIDE] Calculation d = √(9 + 16) detected. Forcing timestamp: {start_t} - {end_t}")
+            trigger_norm = normalize_trigger(trigger_quote)
+            if not trigger_norm:
+                print(f"    [MATCH WARNING] Skipping annotation due to empty trigger_quote for: {content}")
+                continue
+                
+            idx = concat_text.find(trigger_norm)
+            if idx == -1:
+                print(f"    [MATCH WARNING] Skipping annotation because trigger_quote could not be matched: '{trigger_quote}' for content: '{content}'")
+                continue
+                
+            start_idx = idx
+            end_idx = idx + len(trigger_norm) - 1
+            
+            char_times = []
+            for c_idx in range(start_idx, end_idx + 1):
+                t, seg_i = get_char_time(c_idx)
+                if seg_i is not None:
+                    char_times.append((seg_i, t))
+            
+            seg_durations = {}
+            for seg_i, t in char_times:
+                if seg_i not in seg_durations:
+                    seg_durations[seg_i] = []
+                seg_durations[seg_i].append(t)
+            
+            kept_segs = []
+            max_seg_i = None
+            max_dur = -1.0
+            
+            for seg_i, times in seg_durations.items():
+                dur = max(times) - min(times)
+                if dur >= 1.0:
+                    kept_segs.append(seg_i)
+                if dur > max_dur:
+                    max_dur = dur
+                    max_seg_i = seg_i
+            
+            if not kept_segs and max_seg_i is not None:
+                kept_segs = [max_seg_i]
+            
+            if kept_segs:
+                kept_segs.sort()
+                start_t = segments[kept_segs[0]]["start"]
+                end_t = segments[kept_segs[-1]]["end"]
+                matched_seg_txt = " ".join([segments[s]["text"].strip() for s in kept_segs])
+                print(f"    [MATCH DEBUG] Gemini content: {content}")
+                print(f"    [MATCH DEBUG] Trigger quote:  {trigger_quote}")
+                print(f"    [MATCH DEBUG] Segment range:   {kept_segs[0]} - {kept_segs[-1]}")
+                print(f"    [MATCH DEBUG] Timestamp:      {start_t:.2f} - {end_t:.2f}\n")
             else:
-                trigger_norm = normalize_trigger(trigger_quote)
-                if not trigger_norm:
-                    print(f"    [MATCH WARNING] Skipping annotation due to empty trigger_quote for: {content}")
-                    continue
-                    
-                idx = concat_text.find(trigger_norm)
-                if idx == -1:
-                    print(f"    [MATCH WARNING] Skipping annotation because trigger_quote could not be matched: '{trigger_quote}' for content: '{content}'")
-                    continue
-                    
-                start_idx = idx
-                end_idx = idx + len(trigger_norm) - 1
-                
-                char_times = []
-                for c_idx in range(start_idx, end_idx + 1):
-                    t, seg_i = get_char_time(c_idx)
-                    if seg_i is not None:
-                        char_times.append((seg_i, t))
-                
-                seg_durations = {}
-                for seg_i, t in char_times:
-                    if seg_i not in seg_durations:
-                        seg_durations[seg_i] = []
-                    seg_durations[seg_i].append(t)
-                
-                kept_segs = []
-                max_seg_i = None
-                max_dur = -1.0
-                
-                for seg_i, times in seg_durations.items():
-                    dur = max(times) - min(times)
-                    if dur >= 1.0:
-                        kept_segs.append(seg_i)
-                    if dur > max_dur:
-                        max_dur = dur
-                        max_seg_i = seg_i
-                
-                if not kept_segs and max_seg_i is not None:
-                    kept_segs = [max_seg_i]
-                
-                if kept_segs:
-                    kept_segs.sort()
-                    start_t = segments[kept_segs[0]]["start"]
-                    end_t = segments[kept_segs[-1]]["end"]
-                    matched_seg_txt = " ".join([segments[s]["text"].strip() for s in kept_segs])
-                    print(f"    [MATCH DEBUG] Gemini content: {content}")
-                    print(f"    [MATCH DEBUG] Trigger quote:  {trigger_quote}")
-                    print(f"    [MATCH DEBUG] Segment range:   {kept_segs[0]} - {kept_segs[-1]}")
-                    print(f"    [MATCH DEBUG] Timestamp:      {start_t:.2f} - {end_t:.2f}\n")
-                else:
-                    print(f"    [MATCH WARNING] Skipping annotation because no segments could be mapped: '{trigger_quote}' for content: '{content}'")
-                    continue
+                print(f"    [MATCH WARNING] Skipping annotation because no segments could be mapped: '{trigger_quote}' for content: '{content}'")
+                continue
             
             event = {
                 "category": category,
@@ -720,16 +715,57 @@ print("[5/5] Rendering video with annotations...")
 
 bg_arr = np.array(bg_pil.convert("RGB"))   # (H, W, 3) uint8
 
-# Try to load a font; fall back to default if unavailable
+# Try to load handwriting font; fall back to default if unavailable
 try:
-    # Increase font sizes for better visibility
-    FONT_LABEL = ImageFont.truetype("arial.ttf", size=max(32, H // 22))  # Larger text
-    FONT_EQ    = ImageFont.truetype("arial.ttf", size=max(36, H // 20))   # Larger formulas
-    FONT_SMALL = ImageFont.truetype("arial.ttf", size=max(24, H // 28))
-except Exception:
-    FONT_LABEL = ImageFont.load_default()
-    FONT_EQ    = ImageFont.load_default()
-    FONT_SMALL = ImageFont.load_default()
+    font_path = str(PROJECT_ROOT / "assets" / "fonts" / "Kalam-Regular.ttf")
+    if not os.path.exists(font_path):
+        font_path = str(PROJECT_ROOT / "assets" / "fonts" / "PatrickHand-Regular.ttf")
+    FONT_HAND = ImageFont.truetype(font_path, size=max(64, H // 22))
+except Exception as e:
+    print(f"Warning: Handwriting font not found, falling back. ({e})")
+    FONT_HAND = ImageFont.load_default()
+
+def get_wobbly_line(p_start, p_end, fraction, seed_val):
+    x_s, y_s = p_start
+    x_e, y_e = p_end
+    
+    # Calculate target end point based on fraction
+    x_target = x_s + fraction * (x_e - x_s)
+    y_target = y_s + fraction * (y_e - y_s)
+    
+    dist = ((x_e - x_s)**2 + (y_e - y_s)**2)**0.5
+    if dist == 0:
+        return []
+        
+    rng = random.Random(seed_val)
+    pts = []
+    
+    num_steps = int(dist / 20) + 1
+    for step in range(num_steps + 1):
+        step_frac = step / num_steps
+        if step_frac > fraction:
+            break
+        curr_x = x_s + step_frac * (x_e - x_s)
+        curr_y = y_s + step_frac * (y_e - y_s)
+        
+        # Add perpendicular jitter (±2 px)
+        dx = x_e - x_s
+        dy = y_e - y_s
+        perp_x = -dy / dist
+        perp_y = dx / dist
+        jitter = rng.randint(-2, 2)
+        
+        pts.append((curr_x + perp_x * jitter, curr_y + perp_y * jitter))
+        
+    # Always end precisely at the target point (with some jitter)
+    dx = x_e - x_s
+    dy = y_e - y_s
+    perp_x = -dy / dist
+    perp_y = dx / dist
+    jitter = rng.randint(-2, 2)
+    pts.append((x_target + perp_x * jitter, y_target + perp_y * jitter))
+    
+    return pts
 
 def draw_frame(t):
     """Return a numpy RGB frame at time t with all active annotations drawn."""
@@ -760,6 +796,7 @@ def draw_frame(t):
                 
                 if ann_type == "highlight":
                     # Transparent warm yellow highlight with orange border
+                    pass 
                     fill_color = (255, 240, 100, int(80 * alpha_factor))
                     outline_color = (255, 150, 0, int(150 * alpha_factor))
                 else:
@@ -783,8 +820,17 @@ def draw_frame(t):
     active_steps = []
     for ann in annotations:
         if ann.get("type") == "show_text" and ann.get("start") <= t:
+            # Skip OCR-derived content (only render transcript solving steps)
+            if ann.get("category") not in ["formula", "substitution", "calculation", "answer"]:
+                continue
+                
             # Avoid duplicate content if any
             content = ann.get("content", "").strip()
+            
+            # Skip optional 3D-distance formulas for 2D coordinate geometry problems
+            if "3D" in content or "z\u2082" in content or "z2" in content:
+                continue
+                
             if content and content not in [s["content"] for s in active_steps]:
                 active_steps.append({
                     "content": content,
@@ -793,76 +839,124 @@ def draw_frame(t):
                 })
                 
     # Sort active steps chronologically by start time
-    active_steps.sort(key=lambda s: s["start"])
+    active_steps.sort(key=lambda s: round(s["start"], 2))
 
-    # 3. Draw the single unified "Working Steps" card on the right side of the canvas
+    # 3. Draw solution steps with a handwriting typing effect
     if active_steps:
-        # Define card dimensions on the right side of the screen
-        card_w = 1150
-        card_h = 1000
-        # Right half of 2668 is x >= 1334. Center the card in the right half:
-        card_x0 = 1334 + (1334 - card_w) // 2
-        card_y0 = 250
-        card_x1 = card_x0 + card_w
-        card_y1 = card_y0 + card_h
+        # Starting coordinates for the notebook layout (approx 52% width, 30% height)
+        start_x = int(W * 0.52)
+        y_cursor = int(H * 0.30)
         
-        # Slate glassmorphism card background with padding and rounded corners
-        draw.rounded_rectangle(
-            [card_x0, card_y0, card_x1, card_y1],
-            radius=24,
-            fill=(20, 24, 33, 230),  # Sleek dark slate
-            outline=(67, 97, 238, 255),  # Indigo border
-            width=6
-        )
+        # Dark blue ink color for handwritten style
+        INK_COLOR = (25, 35, 90, 255)
         
-        # Draw Card Header
-        header_text = "📝 Working Steps"
-        draw.text(
-            (card_x0 + 40, card_y0 + 35),
-            header_text,
-            font=FONT_EQ,
-            fill=(255, 204, 0, 255)  # Warm gold
-        )
+        # Determine fixed line height for stable spacing (measure first step or a typical string)
+        test_bbox = FONT_HAND.getbbox("d = √((x₂-x₁)² + (y₂-y₁)²)gjy")
+        line_height = (test_bbox[3] - test_bbox[1]) + 60  # includes padding
         
-        # Draw a horizontal divider line under header
-        draw.line(
-            [card_x0 + 40, card_y0 + 95, card_x1 - 40, card_y0 + 95],
-            fill=(100, 116, 139, 150),
-            width=2
-        )
-        
-        # Draw each step inside the card
-        # Vertical space layout:
-        y_cursor = card_y0 + 120
-        for idx, step in enumerate(active_steps):
-            # Render category label (e.g. "Step 1: Formula")
-            cat_label = f"Step {idx + 1} ({step['category'].upper()}):"
-            draw.text(
-                (card_x0 + 40, y_cursor),
-                cat_label,
-                font=FONT_SMALL,
-                fill=(140, 180, 255, 255)  # Soft blue
-            )
-            y_cursor += 35
+        # Jitter offsets to avoid rigid perfect alignment
+        def get_jitter(text):
+            return ((hash(text) % 15) - 7, (hash(text + "y") % 10) - 5)
             
-            # Render step content (can be multi-line text)
-            content_text = step["content"]
+        box_coords = None
+        box_start_time = 0.0
+        
+        for step in active_steps:
+            content_text = step["content"].strip()
+            
+            # Normalize Unicode subscripts to standard digits (Kalam font lacks them)
+            # Using explicit unicode escapes to avoid Windows CP1252 source parsing bugs
+            subscripts = str.maketrans("\u2080\u2081\u2082\u2083\u2084\u2085\u2086\u2087\u2088\u2089", "0123456789")
+            content_text = content_text.translate(subscripts)
+            
+            # Sub-split into lines if there are any newlines
             lines = content_text.split("\n")
+            
+            # Record bounds of the final answer step to draw the box around it
+            if step["category"] == "answer":
+                step_y_start = y_cursor
+                max_line_w = 0
+                num_drawn_lines = 0
+                max_len = 0
+                for line in lines:
+                    if line.strip():
+                        bbox = FONT_HAND.getbbox(line)
+                        line_w = bbox[2] - bbox[0]
+                        if line_w > max_line_w:
+                            max_line_w = line_w
+                        num_drawn_lines += 1
+                        if len(line) > max_len:
+                            max_len = len(line)
+                
+                font_height = test_bbox[3] - test_bbox[1]
+                x0_box = start_x - 18
+                y0_box = step_y_start - 18
+                x1_box = start_x + max_line_w + 18
+                y1_box = step_y_start + (num_drawn_lines - 1) * line_height + font_height + 18
+                box_coords = (x0_box, y0_box, x1_box, y1_box)
+                box_start_time = step["start"] + (max_len / 30.0)
+
             for line in lines:
+                if not line.strip():
+                    y_cursor += line_height
+                    continue
+                
+                # Calculate visible characters based on fixed 30 chars/sec speed
+                chars_per_second = 30.0
+                time_writing = max(0.0, t - step["start"])
+                
+                # Optional fade-in effect for the active character being typed
+                visible_chars = min(len(line), int(time_writing * chars_per_second))
+                visible_text = line[:visible_chars]
+                
+                jx, jy = get_jitter(line)
                 draw.text(
-                    (card_x0 + 60, y_cursor),
-                    line,
-                    font=FONT_LABEL,
-                    fill=(255, 255, 255, 255)  # Crisp white
+                    (start_x + jx, y_cursor + jy),
+                    visible_text,
+                    font=FONT_HAND,
+                    fill=INK_COLOR
                 )
-                y_cursor += 55
+                
+                # Advance cursor regardless of how much is currently visible
+                # so that subsequent steps don't jump around.
+                y_cursor += line_height
+                
+            # Extra padding between different logical steps
+            y_cursor += 30
             
-            # Extra spacing between steps
-            y_cursor += 25
+        # Draw hand-drawn box around final answer if visible and fully written
+        if box_coords is not None and t > box_start_time:
+            x0_box, y0_box, x1_box, y1_box = box_coords
+            time_boxing = t - box_start_time
+            overshoot = 6
+            p1 = (x0_box - overshoot, y0_box)
+            p2 = (x1_box + overshoot, y0_box)
+            p3 = (x1_box, y0_box - overshoot)
+            p4 = (x1_box, y1_box + overshoot)
+            p5 = (x1_box + overshoot, y1_box)
+            p6 = (x0_box - overshoot, y1_box)
+            p7 = (x0_box, y1_box + overshoot)
+            p8 = (x0_box, y0_box - overshoot)
             
-            # Avoid overflow by stopping if we exceed card bounds
-            if y_cursor > card_y1 - 60:
-                break
+            lines_to_draw = [
+                (p1, p2, 0.0, 0.125, 101),   # Top Line
+                (p3, p4, 0.125, 0.25, 202),  # Right Line
+                (p5, p6, 0.25, 0.375, 303),  # Bottom Line
+                (p7, p8, 0.375, 0.5, 404)    # Left Line
+            ]
+            
+            for start_pt, end_pt, t_start, t_end, seed_val in lines_to_draw:
+                if time_boxing >= t_end:
+                    f = 1.0
+                elif time_boxing <= t_start:
+                    f = 0.0
+                else:
+                    f = (time_boxing - t_start) / (t_end - t_start)
+                    
+                if f > 0.0:
+                    pts = get_wobbly_line(start_pt, end_pt, f, seed_val)
+                    if len(pts) >= 2:
+                        draw.line(pts, fill=INK_COLOR, width=3)
 
     return np.array(img.convert("RGB"))
 
