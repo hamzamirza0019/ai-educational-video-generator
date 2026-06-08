@@ -488,7 +488,7 @@ def map_raw_annotations_to_timeline(annotations_raw, duration, segments, ocr_dat
             
             if kept_segs:
                 kept_segs.sort()
-                start_t = segments[kept_segs[0]]["start"]
+                start_t = min(t for _, t in char_times)
                 end_t = segments[kept_segs[-1]]["end"]
                 matched_seg_txt = " ".join([segments[s]["text"].strip() for s in kept_segs])
                 print(f"    [MATCH DEBUG] Gemini content: {content}")
@@ -783,7 +783,26 @@ def draw_frame(t):
             continue
 
         # Draw highlight
-        if ann_type == "highlight" or ann_type == "correct_option_highlight":
+        if ann_type == "highlight":
+            x0 = ann.get("x0")
+            y0 = ann.get("y0")
+            x1 = ann.get("x1")
+            y1 = ann.get("y1")
+            if x0 is not None and y0 is not None and x1 is not None and y1 is not None:
+                bbox_width = x1 - x0
+                bbox_height = y1 - y0
+                underline_duration = 7.0
+                fraction = min(1.0, (t - ann["start"]) / underline_duration)
+                if fraction > 0:
+                    y_pos = y1 + int(bbox_height * 0.06)
+                    p_start = (x0, y_pos)
+                    p_end = (x1, y_pos)
+                    pts = get_wobbly_line(p_start, p_end, fraction, 999)
+                    if len(pts) >= 2:
+                        thickness = max(3, int(bbox_height * 0.045))
+                        draw.line(pts, fill=(25, 35, 90, 255), width=thickness)
+                        
+        elif ann_type == "correct_option_highlight":
             x0 = ann.get("x0")
             y0 = ann.get("y0")
             x1 = ann.get("x1")
@@ -794,15 +813,9 @@ def draw_frame(t):
                 fade_duration = 0.3
                 alpha_factor = min(1.0, time_in / fade_duration)
                 
-                if ann_type == "highlight":
-                    # Transparent warm yellow highlight with orange border
-                    pass 
-                    fill_color = (255, 240, 100, int(80 * alpha_factor))
-                    outline_color = (255, 150, 0, int(150 * alpha_factor))
-                else:
-                    # Soft transparent green outline box for selected answer
-                    fill_color = (100, 255, 100, int(50 * alpha_factor))
-                    outline_color = (40, 190, 40, int(220 * alpha_factor))
+                # Soft transparent green outline box for selected answer
+                fill_color = (100, 255, 100, int(50 * alpha_factor))
+                outline_color = (40, 190, 40, int(220 * alpha_factor))
                 
                 draw.rectangle([x0, y0, x1, y1], fill=fill_color, outline=outline_color, width=6)
                 
@@ -894,15 +907,15 @@ def draw_frame(t):
                 x1_box = start_x + max_line_w + 18
                 y1_box = step_y_start + (num_drawn_lines - 1) * line_height + font_height + 18
                 box_coords = (x0_box, y0_box, x1_box, y1_box)
-                box_start_time = step["start"] + (max_len / 30.0)
+                box_start_time = step["start"] + (max_len / 3.0)
 
             for line in lines:
                 if not line.strip():
                     y_cursor += line_height
                     continue
                 
-                # Calculate visible characters based on fixed 30 chars/sec speed
-                chars_per_second = 30.0
+                # Calculate visible characters based on fixed 3.0 chars/sec speed
+                chars_per_second = 3.0
                 time_writing = max(0.0, t - step["start"])
                 
                 # Optional fade-in effect for the active character being typed
